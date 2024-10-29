@@ -81,7 +81,7 @@ class Bot:
         for tick in range(1, ticks_ahead + 1):
             min_threat_distance = float("inf")
             for threat in threats:
-                predicted_threat_position = self.predict_threat_position(threat, tick)
+                predicted_threat_position = self.predict_threat_position(threat, tick, game_map)
                 if 0 <= predicted_threat_position.x < map_width and 0 <= predicted_threat_position.y < map_height:
                     distance = abs(position.x - predicted_threat_position.x) + abs(position.y - predicted_threat_position.y)
                     min_threat_distance = min(min_threat_distance, distance)
@@ -93,7 +93,7 @@ class Bot:
 
         return safety_score
 
-    def predict_threat_position(self, threat, ticks):
+    def predict_threat_position(self, threat, ticks, game_map):
         position = threat.position
         for _ in range(ticks):
             if threat.direction == "UP":
@@ -116,12 +116,13 @@ class Bot:
 
         for y in range(map_height):
             for x in range(map_width):
-                position = Position(x, y)
-                if game_message.map.tiles[y][x] != TileType.WALL:
-                    # A position is considered safe if it's far from threats and not recently visited
-                    if all(abs(position.x - threat.position.x) + abs(position.y - threat.position.y) > 3 for threat in game_message.threats):
-                        if position not in self.visited_positions:
-                            self.safe_zones.append(position)
+                if 0 <= y < map_height and 0 <= x < map_width:
+                    position = Position(x, y)
+                    if game_message.map.tiles[y][x] != TileType.WALL:
+                        # A position is considered safe if it's far from threats and not recently visited
+                        if all(abs(position.x - threat.position.x) + abs(position.y - threat.position.y) > 3 for threat in game_message.threats):
+                            if position not in self.visited_positions:
+                                self.safe_zones.append(position)
 
         # Sort safe zones by distance from current position to prioritize closer zones
         current_position = game_message.yourCharacter.position
