@@ -1,5 +1,7 @@
 import heapq
 
+import networkx as nx
+
 from game_message import *
 import random
 
@@ -18,6 +20,7 @@ class Bot:
         map_width = game_message.map.width
         map_height = game_message.map.height
 
+
         directions = {
             "MOVE_UP": Position(current_position.x, current_position.y - 1),
             "MOVE_DOWN": Position(current_position.x, current_position.y + 1),
@@ -32,28 +35,32 @@ class Bot:
                     valid_moves.append((action, position))
 
         if not valid_moves:
+
             return []
 
-        move_distances = []
+        move_scores = []
         for action, position in valid_moves:
-            min_distance = float("inf")
+            min_threat_distance = float("inf")
             for threat in threats:
                 distance = abs(position.x - threat.position.x) + abs(position.y - threat.position.y)
-                if distance < min_distance:
-                    min_distance = distance
-            heapq.heappush(move_distances, (-min_distance, action))
+                min_threat_distance = min(min_threat_distance, distance)
+
+            move_scores.append((min_threat_distance, action))
 
 
-        _, best_action = heapq.heappop(move_distances)
+        best_move = max(move_scores, key=lambda x: x[0])[1]
 
-        if best_action == "MOVE_UP":
+
+        if best_move == "MOVE_UP":
             actions.append(MoveUpAction())
-        elif best_action == "MOVE_DOWN":
+        elif best_move == "MOVE_DOWN":
             actions.append(MoveDownAction())
-        elif best_action == "MOVE_LEFT":
+        elif best_move == "MOVE_LEFT":
             actions.append(MoveLeftAction())
-        elif best_action == "MOVE_RIGHT":
+        elif best_move == "MOVE_RIGHT":
             actions.append(MoveRightAction())
 
         return actions
+
+
 
