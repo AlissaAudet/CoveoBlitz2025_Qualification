@@ -1,10 +1,4 @@
 websockets==10.4
 dataclasses-json==0.6.7
 
-pip install networkx
-pip install scipy
-pip install pathfinding
-pip install numpy
-
-
 #installer avec pip install
