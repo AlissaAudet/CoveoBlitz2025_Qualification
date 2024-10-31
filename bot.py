@@ -74,11 +74,18 @@ class Bot:
         return [move_action]
 
     def create_grid(self, tiles):
-        # Conversion des tuiles en une grille binaire
+        # Correction des dimensions (cette fois en inversant bien les axes)
+        actual_height = len(tiles)  # Hauteur réelle
+        actual_width = len(tiles[0]) if actual_height > 0 else 0  # Largeur réelle
+
+        print(f"Dimensions réelles des tuiles: largeur = {actual_width}, hauteur = {actual_height}")
+
+        # Conversion des tuiles en une grille binaire, en ajustant l'inversion des axes
         grid = []
-        for y, row in enumerate(tiles):
+        for x in range(actual_width):
             grid_row = []
-            for x, tile in enumerate(row):
+            for y in range(actual_height):
+                tile = tiles[y][x]  # Accéder à la bonne position en inversant les indices
                 if tile == TileType.WALL:
                     grid_row.append(1)
                     print(f"Mur détecté à la position ({x}, {y})")  # Log pour vérifier chaque mur détecté
@@ -86,11 +93,12 @@ class Bot:
                     grid_row.append(0)
             grid.append(grid_row)
 
-        # Affichage des dimensions réelles de la grille
+        # Affichage des dimensions réelles de la grille générée
         height = len(grid)
         width = len(grid[0]) if height > 0 else 0
         print(f"Dimensions de la grille générée: largeur = {width}, hauteur = {height}")
 
+        # Ajouter une représentation visuelle de la grille
         print("Grille générée:")
         for row in grid:
             print("".join(["#" if cell == 1 else "." for cell in row]))
