@@ -1,129 +1,292 @@
-from game_message import *
+import time
 import random
 import heapq
-from collections import deque
-
+from itertools import count
+from game_message import (
+    TeamGameState,
+    Position,
+    MoveLeftAction,
+    MoveRightAction,
+    MoveUpAction,
+    MoveDownAction,
+    MoveToAction,
+    TileType,
+)
+"""  Problème Le bot détecte mal les mur.
+"""
 class Bot:
     def __init__(self):
-        print("Initializing your super mega duper bot")
+        self.tick = 0
+        self.counter = count()
         self.last_move = None
-        self.repeated_moves = 0
-        self.visited_positions = deque(maxlen=10)  # Memory of last 10 positions
-        self.safe_zones = []  # Pre-calculated safe zones
+        self.previous_positions = []
 
-    def get_next_move(self, game_message: TeamGameState):
-        actions = []
-        threats = game_message.threats
-        current_position = game_message.yourCharacter.position
-        map_width = game_message.map.width
-        map_height = game_message.map.height
+    def get_next_move(self, game_state: TeamGameState):
+        start_time = time.perf_counter()
+        self.tick += 1
+        your_car = game_state.yourCharacter
+        threats = game_state.threats
+        position = your_car.position
 
-        # Update safe zones
-        self.update_safe_zones(game_message)
+        tiles = game_state.map.tiles
 
-        directions = {
-            "MOVE_UP": Position(current_position.x, current_position.y - 1),
-            "MOVE_DOWN": Position(current_position.x, current_position.y + 1),
-            "MOVE_LEFT": Position(current_position.x - 1, current_position.y),
-            "MOVE_RIGHT": Position(current_position.x + 1, current_position.y)
-        }
+        # Convertir la carte en une grille
+        grid = self.create_grid(tiles)
 
-        valid_moves = []
-        for action, position in directions.items():
-            if 0 <= position.x < map_width and 0 <= position.y < map_height:
-                if game_message.map.tiles[position.y][position.x] != TileType.WALL and position not in self.visited_positions:
-                    valid_moves.append((action, position))
+        # Obtenir les dimensions réelles de la grille
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
 
-        if not valid_moves:
-            return []
+        # Afficher la position du bot
+        print(f"Tick {self.tick}: Position du bot: ({position.x}, {position.y})")
 
-        move_scores = []
-        for action, position in valid_moves:
-            safety_score = self.evaluate_position_safety(position, threats, game_map=game_message.map, ticks_ahead=3)
-            move_scores.append((safety_score, action))
+        # Afficher les positions réelles des menaces
+        print(
+            f"Tick {self.tick}: Positions réelles des menaces : {[(threat.position.x, threat.position.y) for threat in threats]}")
 
-        best_move = max(move_scores, key=lambda x: x[0])[1]
+        # Afficher les directions des menaces
+        print(f"Tick {self.tick}: Directions des menaces : {[threat.direction for threat in threats]}")
 
-        if self.last_move is not None and best_move == self.last_move:
-            self.repeated_moves += 1
+        # Prédire les positions des menaces
+        threat_positions = self.predict_threat_positions(threats, width, height)
+
+        # Afficher les positions des menaces prédites pour le débogage
+        print(
+            f"Tick {self.tick}: Positions des menaces (prédites) : {[(t_pos.x, t_pos.y) for t_pos in threat_positions]}")
+
+        # Mettre à jour la grille avec les menaces prédites
+        for t_pos in threat_positions:
+            if 0 <= t_pos.y < height and 0 <= t_pos.x < width:
+                grid[t_pos.y][t_pos.x] = 1  # Marquer comme obstacle
+
+        # Trouver le meilleur mouvement d'évasion
+        move_action = self.evade_threats(position, threats, grid)
+
+        # Mesurer le temps d'exécution
+        end_time = time.perf_counter()
+        execution_time = (end_time - start_time) * 1000  # Convertir en millisecondes
+        print(f"Tick {self.tick}: Temps d'exécution = {execution_time:.2f} ms")
+
+        # Enregistrer le dernier mouvement pour éviter les allers-retours
+        if move_action:
+            self.last_move = move_action.type
+
+        return [move_action]
+
+    def create_grid(self, tiles):
+        # Conversion des tuiles en une grille binaire
+        grid = []
+        for y, row in enumerate(tiles):
+            grid_row = []
+            for x, tile in enumerate(row):
+                if tile == TileType.WALL:
+                    grid_row.append(1)
+                    print(f"Mur détecté à la position ({x}, {y})")  # Log pour vérifier chaque mur détecté
+                else:
+                    grid_row.append(0)
+            grid.append(grid_row)
+
+        # Affichage des dimensions réelles de la grille
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
+        print(f"Dimensions de la grille générée: largeur = {width}, hauteur = {height}")
+
+        print("Grille générée:")
+        for row in grid:
+            print("".join(["#" if cell == 1 else "." for cell in row]))
+
+        return grid
+
+    def predict_threat_positions(self, threats, width, height):
+        threat_positions = []
+        for threat in threats:
+            t_pos = threat.position
+            direction = threat.direction.upper()
+            dx, dy = 0, 0
+            if direction == 'UP':
+                dy = -1
+            elif direction == 'DOWN':
+                dy = 1
+            elif direction == 'LEFT':
+                dx = -1
+            elif direction == 'RIGHT':
+                dx = 1
+            else:
+                dx, dy = 0, 0
+            predicted_x = t_pos.x + dx
+            predicted_y = t_pos.y + dy
+            # Vérifier si la position prédite est dans les limites
+            if 0 <= predicted_x < width and 0 <= predicted_y < height:
+                predicted_pos = Position(x=predicted_x, y=predicted_y)
+            else:
+                predicted_pos = Position(x=t_pos.x, y=t_pos.y)
+            threat_positions.append(predicted_pos)
+        return threat_positions
+
+    def will_threat_move_to(self, threat, x, y):
+        direction = threat.direction.upper()
+        dx, dy = 0, 0
+        if direction == 'UP':
+            dy = -1
+        elif direction == 'DOWN':
+            dy = 1
+        elif direction == 'LEFT':
+            dx = -1
+        elif direction == 'RIGHT':
+            dx = 1
+        next_x = threat.position.x + dx
+        next_y = threat.position.y + dy
+        return next_x == x and next_y == y
+
+    def find_safest_point(self, start: Position, grid, threat_positions):
+        positions = []
+        max_distance = -1
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
+        for y in range(height):
+            for x in range(width):
+                if grid[y][x] == 0:
+                    min_threat_distance = min(
+                        abs(x - t_pos.x) + abs(y - t_pos.y) for t_pos in threat_positions
+                    )
+                    if min_threat_distance > max_distance:
+                        max_distance = min_threat_distance
+                        positions = [Position(x=x, y=y)]
+                    elif min_threat_distance == max_distance:
+                        positions.append(Position(x=x, y=y))
+        if positions:
+            safest_point = min(positions, key=lambda pos: abs(pos.x - start.x) + abs(pos.y - start.y))
+            print(f"Point le plus sûr choisi: ({safest_point.x}, {safest_point.y}) avec distance {max_distance}")
+            return safest_point
         else:
-            self.repeated_moves = 0
-        self.last_move = best_move
+            # Si aucune position sûre n'est trouvée, rester sur place
+            return start
 
-        if self.repeated_moves > 3:
-            alternative_moves = [move for move in valid_moves if move[0] != best_move]
-            if alternative_moves:
-                best_move = max(alternative_moves, key=lambda x: self.evaluate_position_safety(x[1], threats, game_map=game_message.map, ticks_ahead=3))[0]
-            self.repeated_moves = 0
+    def find_safest_path(self, start_pos, grid, threat_positions):
+        # Fonction  l'algorithme A*
+        def heuristic(a: Position, b: Position):
+            return abs(a.x - b.x) + abs(a.y - b.y)
 
-        # Add the current position to visited positions
-        self.visited_positions.append(current_position)
+        start = Position(x=start_pos.x, y=start_pos.y)
+        goal = self.find_safest_point(start, grid, threat_positions)
 
-        if best_move == "MOVE_UP":
-            actions.append(MoveUpAction())
-        elif best_move == "MOVE_DOWN":
-            actions.append(MoveDownAction())
-        elif best_move == "MOVE_LEFT":
-            actions.append(MoveLeftAction())
-        elif best_move == "MOVE_RIGHT":
-            actions.append(MoveRightAction())
+        open_set = []
+        heapq.heappush(open_set, (0, next(self.counter), start))
+        came_from = {}
+        g_score = {(start.x, start.y): 0}
+        f_score = {(start.x, start.y): heuristic(start, goal)}
 
-        return actions
+        while open_set:
+            current = heapq.heappop(open_set)[2]  # Récupérer l'élément Position
 
-    def evaluate_position_safety(self, position, threats, game_map, ticks_ahead=3):
-        """
-        Evaluate the safety of a position by considering the distance to threats over multiple ticks.
-        """
-        map_width = game_map.width
-        map_height = game_map.height
-        safety_score = 0
+            if current.x == goal.x and current.y == goal.y:
+                # Reconstruire le chemin
+                path = [current]
+                while (current.x, current.y) in came_from:
+                    current = came_from[(current.x, current.y)]
+                    path.append(current)
+                path.reverse()
+                return path
 
-        for tick in range(1, ticks_ahead + 1):
-            min_threat_distance = float("inf")
-            for threat in threats:
-                predicted_threat_position = self.predict_threat_position(threat, tick, game_map)
-                if 0 <= predicted_threat_position.x < map_width and 0 <= predicted_threat_position.y < map_height:
-                    distance = abs(position.x - predicted_threat_position.x) + abs(position.y - predicted_threat_position.y)
-                    min_threat_distance = min(min_threat_distance, distance)
-            safety_score += min_threat_distance
+            neighbors = self.get_neighbors(current, grid)
+            for neighbor in neighbors:
+                tentative_g_score = g_score[(current.x, current.y)] + 1
+                neighbor_pos = (neighbor.x, neighbor.y)
+                if neighbor_pos not in g_score or tentative_g_score < g_score[neighbor_pos]:
+                    came_from[neighbor_pos] = current
+                    g_score[neighbor_pos] = tentative_g_score
+                    f_score[neighbor_pos] = tentative_g_score + heuristic(neighbor, goal)
+                    heapq.heappush(
+                        open_set,
+                        (f_score[neighbor_pos], next(self.counter), neighbor)
+                    )
 
-        # Add a bonus if the position is in a pre-calculated safe zone
-        if position in self.safe_zones:
-            safety_score += 10
+        print("Aucun chemin trouvé vers le point le plus sûr.")
+        return None  # Aucun chemin trouvé
 
-        return safety_score
+    def get_neighbors(self, pos: Position, grid):
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        neighbors = []
+        for dx, dy in directions:
+            nx, ny = pos.x + dx, pos.y + dy
+            if 0 <= ny < height and 0 <= nx < width:
+                if grid[ny][nx] == 0:
+                    neighbors.append(Position(x=nx, y=ny))
+        return neighbors
 
-    def predict_threat_position(self, threat, ticks, game_map):
-        position = threat.position
-        for _ in range(ticks):
-            if threat.direction == "UP":
-                position = Position(position.x, max(0, position.y - 1))
-            elif threat.direction == "DOWN":
-                position = Position(position.x, min(position.y + 1, game_map.height - 1))
-            elif threat.direction == "LEFT":
-                position = Position(max(0, position.x - 1), position.y)
-            elif threat.direction == "RIGHT":
-                position = Position(min(position.x + 1, game_map.width - 1), position.y)
-        return position
+    def get_move_action(self, current_pos: Position, next_pos: Position):
+        dx = next_pos.x - current_pos.x
+        dy = next_pos.y - current_pos.y
+        if dx == 1:
+            return MoveRightAction()
+        elif dx == -1:
+            return MoveLeftAction()
+        elif dy == 1:
+            return MoveDownAction()
+        elif dy == -1:
+            return MoveUpAction()
+        else:
+            # Rester en place si aucun mouvement
+            return MoveToAction(position=current_pos)
 
-    def update_safe_zones(self, game_message):
-        """
-        Update the list of safe zones based on the current game state.
-        """
-        self.safe_zones.clear()
-        map_width = game_message.map.width
-        map_height = game_message.map.height
+    def evade_threats(self, position: Position, threats, grid):
+        height = len(grid)
+        width = len(grid[0]) if height > 0 else 0
+        directions = [
+            ('MOVE_UP', (0, -1)),
+            ('MOVE_DOWN', (0, 1)),
+            ('MOVE_LEFT', (-1, 0)),
+            ('MOVE_RIGHT', (1, 0)),
+        ]
+        moves = []
+        for move_type, (dx, dy) in directions:
+            nx, ny = position.x + dx, position.y + dy
+            print(f"Position cible envisagée pour {move_type}: ({nx}, {ny})")
 
-        for y in range(map_height):
-            for x in range(map_width):
-                if 0 <= y < map_height and 0 <= x < map_width:
-                    position = Position(x, y)
-                    if game_message.map.tiles[y][x] != TileType.WALL:
-                        # A position is considered safe if it's far from threats and not recently visited
-                        if all(abs(position.x - threat.position.x) + abs(position.y - threat.position.y) > 3 for threat in game_message.threats):
-                            if position not in self.visited_positions:
-                                self.safe_zones.append(position)
+            # Vérifier les limites de la carte en premier lieu
+            if not (0 <= nx < width and 0 <= ny < height):
+                print(f"Position ({nx}, {ny}) est en dehors des limites. Mouvement {move_type} impossible.")
+                continue
 
-        # Sort safe zones by distance from current position to prioritize closer zones
-        current_position = game_message.yourCharacter.position
-        self.safe_zones.sort(key=lambda pos: abs(pos.x - current_position.x) + abs(pos.y - current_position.y))
+            # Vérifier s'il s'agit d'un mur
+            if grid[ny][nx] == 1:
+                print(f"Position ({nx}, {ny}) est un mur. Mouvement {move_type} impossible.")
+                continue
+
+            # Vérifier la présence d'une menace à cette position
+            if any(threat.position.x == nx and threat.position.y == ny for threat in threats):
+                print(f"Position ({nx}, {ny}) occupée par une menace. Mouvement {move_type} ignoré.")
+                continue
+
+            # Vérifier si une menace va se déplacer vers cette position
+            if any(self.will_threat_move_to(threat, nx, ny) for threat in threats):
+                print(f"Une menace va se déplacer vers ({nx}, {ny}). Mouvement {move_type} ignoré.")
+                continue
+
+            # Éviter le retour immédiat en arrière
+
+            # Calculer la distance minimale aux menaces pour ce mouvement
+            min_threat_distance = min(
+                abs(nx - threat.position.x) + abs(ny - threat.position.y) for threat in threats
+            )
+            moves.append((min_threat_distance, move_type))
+            print(
+                f"Position ({nx}, {ny}) est libre. Mouvement {move_type} possible avec distance minimale aux menaces {min_threat_distance}.")
+
+        if moves:
+            # Choisir le mouvement avec la distance maximale aux menaces
+            max_distance, best_move = max(moves)
+            print(f"Mouvement d'évasion choisi: {best_move} avec distance minimale aux menaces {max_distance}.")
+            if best_move == 'MOVE_UP':
+                return MoveUpAction()
+            elif best_move == 'MOVE_DOWN':
+                return MoveDownAction()
+            elif best_move == 'MOVE_LEFT':
+                return MoveLeftAction()
+            elif best_move == 'MOVE_RIGHT':
+                return MoveRightAction()
+        else:
+            print("Aucun mouvement d'évasion possible. Le bot reste sur place.")
+            return MoveToAction(position=position)

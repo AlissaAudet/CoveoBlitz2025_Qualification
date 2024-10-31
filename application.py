@@ -11,7 +11,6 @@ import websockets
 from bot import Bot
 from game_message import TeamGameState
 
-
 async def run():
     uri = "ws://127.0.0.1:8765"
 
@@ -30,6 +29,7 @@ async def run():
 
 
 async def game_loop(websocket: websockets.WebSocketServerProtocol, bot: Bot):
+
     while True:
         try:
             message = await websocket.recv()
